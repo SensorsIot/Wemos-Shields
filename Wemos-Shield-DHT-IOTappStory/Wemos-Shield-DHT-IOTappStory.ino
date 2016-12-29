@@ -123,8 +123,6 @@ typedef struct {
   char IOTappStoryPHP1[STRUCT_CHAR_ARRAY_SIZE];
   char IOTappStory2[STRUCT_CHAR_ARRAY_SIZE];
   char IOTappStoryPHP2[STRUCT_CHAR_ARRAY_SIZE];
-  char switchName1[STRUCT_CHAR_ARRAY_SIZE];
-  char switchName2[STRUCT_CHAR_ARRAY_SIZE];
   // insert NEW CONSTANTS according boardname example HERE!
   char magicBytes[4];
 } strConfig;
@@ -137,8 +135,6 @@ strConfig config = {
   "/IOTappStory/IOTappStoryv20.php",
   "iotappstory.org",
   "/ota/esp8266-v1.php",
-  "",
-  "",
   "CFG"  // Magic Bytes
 };
 
