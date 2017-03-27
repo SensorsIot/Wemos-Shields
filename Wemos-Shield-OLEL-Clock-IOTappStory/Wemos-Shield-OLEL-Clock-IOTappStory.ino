@@ -55,6 +55,9 @@
 #include "RemoteDebug.h"        //https://github.com/JoaoLopesF/RemoteDebug
 #include <WiFiManager.h>        //https://github.com/kentaylor/WiFiManager
 #include <Ticker.h>
+#include <ArduinoJson.h>
+#include <FS.h>
+
 #include <SNTPtime.h>
 #include <Wire.h>  // Include Wire if you're using I2C
 #include <SFE_MicroOLED.h>  // Include the SFE_MicroOLED library
@@ -66,12 +69,12 @@ extern "C" {
 
 // -------- PIN DEFINITIONS ------------------
 #ifdef ARDUINO_ESP8266_ESP01           // Generic ESP's 
-#define GPIO0 0
+#define MODEBUTTON 0
 #define LEDgreen 13
 //#define LEDred 12
 #define RELAYPIN 15
 #else
-#define GPIO0 D3
+#define MODEBUTTON D3
 #define LEDgreen D7
 //#define LEDred D6
 #define PIRpin D5
@@ -96,7 +99,6 @@ extern "C" {
 //-------- SERVICES --------------
 
 WiFiServer server(80);
-Ticker blink;
 
 // remoteDebug
 #ifdef REMOTEDEBUGGING
@@ -118,26 +120,24 @@ typedef struct {
   char IOTappStoryPHP1[STRUCT_CHAR_ARRAY_SIZE];
   char IOTappStory2[STRUCT_CHAR_ARRAY_SIZE];
   char IOTappStoryPHP2[STRUCT_CHAR_ARRAY_SIZE];
+  char automaticUpdate[2];   // right after boot
   // insert NEW CONSTANTS according boardname example HERE!
+
   char magicBytes[4];
+
 } strConfig;
 
 strConfig config = {
-  mySSID,
-  myPASSWORD,
+  "",
+  "",
   "WemosShieldClock",
-  "192.168.0.200",
-  "/IOTappStory/IOTappStoryv20.php",
-  "iotappstory.org",
+  "iotappstory.com",
   "/ota/esp8266-v1.php",
+  "iotappstory.com",
+  "/ota/esp8266-v1.php",
+  "0",
   "CFG"  // Magic Bytes
 };
-
-typedef struct {
-  byte markerFlag;
-  int bootTimes;
-} rtcMemDef __attribute__((aligned(4)));
-rtcMemDef rtcMem;
 
 /*
    The structure contains following fields:
@@ -157,18 +157,7 @@ strDateTime dateTime;
 
 //---------- VARIABLES ----------
 
-String boardName, IOTappStory1, IOTappStoryPHP1, IOTappStory2, IOTappStoryPHP2; // add NEW CONSTANTS according boardname example
-
 long delayCount = -1;
-
-char boardMode = 'N';  // Normal operation or Configuration mode?
-
-volatile unsigned long buttonEntry, buttonTime;
-volatile bool buttonChanged = false;
-volatile int greenTimesOff = 0;
-volatile int redTimesOff = 0;
-volatile int greenTimes = 0;
-volatile int redTimes = 0;
 
 unsigned long infoEntry;
 
@@ -209,10 +198,11 @@ bool readRTCmem(void);
 void printRTCmem(void);
 void switchRelay(bool);
 bool handleWiFi(void);
+void initialize(void);
 
 //---------- OTHER .H FILES ----------
 #include <ESP_Helpers.h>
-#include "WiFiManager_Helpers.h"
+#include "IOTappStoryHelpers.h"
 #include <SparkfunReport.h>
 
 
@@ -225,7 +215,7 @@ void setup() {
 
 
   // ----------- PINS ----------------
-  pinMode(GPIO0, INPUT_PULLUP);  // GPIO0 as input for Config mode selection
+  pinMode(MODEBUTTON, INPUT_PULLUP);  // MODEBUTTON as input for Config mode selection
 
 #ifdef LEDgreen
   pinMode(LEDgreen, OUTPUT);
@@ -241,11 +231,11 @@ void setup() {
 digitalWrite(RELAYPIN,HIGH);
 
   // ------------- INTERRUPTS ----------------------------
-  attachInterrupt(GPIO0, ISRbuttonStateChanged, CHANGE);
+  attachInterrupt(MODEBUTTON, ISRbuttonStateChanged, CHANGE);
 
 
-  Serial.print("GPIO0 ");
-  Serial.println(GPIO0);
+  Serial.print("MODEBUTTON ");
+  Serial.println(MODEBUTTON);
   //------------- LED and DISPLAYS ------------------------
   LEDswitch(GreenBlink);
 
@@ -286,10 +276,6 @@ digitalWrite(RELAYPIN,HIGH);
     DEBUG_PRINT("IP Address: ");
     DEBUG_PRINTLN(WiFi.localIP());
 
-#ifdef REMOTEDEBUGGING
-    remoteDebugSetup();
-    REMOTEDEBUG_PRINTLN(config.boardName);
-#endif
 
 #ifdef BOOTSTATISTICS
     sendSparkfun();   // send boot statistics to sparkfun
@@ -332,7 +318,7 @@ digitalWrite(RELAYPIN,HIGH);
 
   LEDswitch(None);
 
-    pinMode(GPIO0, INPUT_PULLUP);  // GPIO0 as input for Config mode selection
+    pinMode(MODEBUTTON, INPUT_PULLUP);  // MODEBUTTON as input for Config mode selection
   DEBUG_PRINTLN("setup done");
 }
 //--------------- LOOP ----------------------------------
@@ -376,6 +362,8 @@ void loop() {
 
 
 bool handleWiFi() {
+  #define ON true
+  #define OFF false
   WiFiClient client = server.available();
   if (!client) return false;
   else {
@@ -430,12 +418,6 @@ bool handleWiFi() {
     }
   }
 }
-
-void readFullConfiguration() {
-  readConfig();  // configuration in EEPROM
-  // insert NEW CONSTANTS according switchName1 example
-}
-
 
 bool readRTCmem() {
   bool ret = true;
