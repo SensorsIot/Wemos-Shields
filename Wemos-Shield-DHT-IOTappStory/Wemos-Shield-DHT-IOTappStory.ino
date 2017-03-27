@@ -55,10 +55,16 @@
 #include "RemoteDebug.h"        //https://github.com/JoaoLopesF/RemoteDebug
 #include <WiFiManager.h>        //https://github.com/kentaylor/WiFiManager
 #include <Ticker.h>
+#include <ArduinoJson.h>
+#include <FS.h>
 
 #include "DHT.h"
 #include <Wire.h>  // Include Wire if you're using I2C
 #include <SFE_MicroOLED.h>  // Include the SFE_MicroOLED library
+
+#ifdef REMOTEDEBUGGING
+#include <WiFiUDP.h>
+#endif
 
 extern "C" {
 #include "user_interface.h" // this is for the RTC memory read/write functions
@@ -67,12 +73,12 @@ extern "C" {
 
 // -------- PIN DEFINITIONS ------------------
 #ifdef ARDUINO_ESP8266_ESP01           // Generic ESP's 
-#define GPIO0 0
+#define MODEBUTTON 0
 #define LEDgreen 13
 //#define LEDred 12
 #define RELAYPIN 12
 #else
-#define GPIO0 D3
+#define MODEBUTTON D3
 #define LEDgreen D7
 //#define LEDred D6
 #define PIRpin D5
@@ -82,8 +88,8 @@ extern "C" {
 #define DHTPIN D4     // what pin we're connected to
 
 // Uncomment whatever type you're using!
-//#define DHTTYPE DHT11   // DHT 11
-#define DHTTYPE DHT22   // DHT 22  (AM2302)
+#define DHTTYPE DHT11   // DHT 11
+//#define DHTTYPE DHT22   // DHT 22  (AM2302)
 //#define DHTTYPE DHT21   // DHT 21 (AM2301)
 
 #define PIN_RESET 255  //
@@ -97,12 +103,12 @@ extern "C" {
 #define RTCMEMBEGIN 68
 #define MAGICBYTE 85
 
-
+#define ON true
+#define OFF false
 
 //-------- SERVICES --------------
 
 WiFiServer server(80);
-Ticker blink;
 
 // remoteDebug
 #ifdef REMOTEDEBUGGING
@@ -123,42 +129,32 @@ typedef struct {
   char IOTappStoryPHP1[STRUCT_CHAR_ARRAY_SIZE];
   char IOTappStory2[STRUCT_CHAR_ARRAY_SIZE];
   char IOTappStoryPHP2[STRUCT_CHAR_ARRAY_SIZE];
+  char automaticUpdate[2];   // right after boot
   // insert NEW CONSTANTS according boardname example HERE!
+
   char magicBytes[4];
+
 } strConfig;
 
 strConfig config = {
-  mySSID,
-  myPASSWORD,
-  "WemosShield",
-  "192.168.0.200",
-  "/IOTappStory/IOTappStoryv20.php",
-  "iotappstory.org",
+  "",
+  "",
+  "yourFirstApp",
+  "iotappstory.com",
   "/ota/esp8266-v1.php",
+  "iotappstory.com",
+  "/ota/esp8266-v1.php",
+  "1",
   "CFG"  // Magic Bytes
 };
 
-typedef struct {
-  byte markerFlag;
-  int bootTimes;
-} rtcMemDef __attribute__((aligned(4)));
-rtcMemDef rtcMem;
+
 
 //---------- VARIABLES ----------
 
-String boardName, IOTappStory1, IOTappStoryPHP1, IOTappStory2, IOTappStoryPHP2; // add NEW CONSTANTS according boardname example
 int delayTime;   // time till off in seconds; 0 = always on
 
 long delayCount = -1;
-
-char boardMode = 'N';  // Normal operation or Configuration mode?
-
-volatile unsigned long buttonEntry, buttonTime;
-volatile bool buttonChanged = false;
-volatile int greenTimesOff = 0;
-volatile int redTimesOff = 0;
-volatile int greenTimes = 0;
-volatile int redTimes = 0;
 
 unsigned long infoEntry;
 
@@ -173,12 +169,12 @@ void loopWiFiManager(void);
 void readFullConfiguration(void);
 bool readRTCmem(void);
 void printRTCmem(void);
-void switchRelay(bool);
-bool handleWiFi(void);
+void initialize(void);
+void sendDebugMessage(void);
 
 //---------- OTHER .H FILES ----------
 #include <ESP_Helpers.h>
-#include "WiFiManager_Helpers.h"
+#include "IOTappStoryHelpers.h"
 #include <SparkfunReport.h>
 
 
@@ -191,7 +187,7 @@ void setup() {
 
 
   // ----------- PINS ----------------
-  pinMode(GPIO0, INPUT_PULLUP);  // GPIO0 as input for Config mode selection
+  pinMode(MODEBUTTON, INPUT_PULLUP);  // MODEBUTTON as input for Config mode selection
 
 #ifdef LEDgreen
   pinMode(LEDgreen, OUTPUT);
@@ -206,7 +202,7 @@ void setup() {
 
 
   // ------------- INTERRUPTS ----------------------------
-  attachInterrupt(GPIO0, ISRbuttonStateChanged, CHANGE);
+  attachInterrupt(MODEBUTTON, ISRbuttonStateChanged, CHANGE);
 
 
 
@@ -250,12 +246,7 @@ void setup() {
     DEBUG_PRINT("IP Address: ");
     DEBUG_PRINTLN(WiFi.localIP());
 
-#ifdef REMOTEDEBUGGING
-    remoteDebugSetup();
-    REMOTEDEBUG_PRINTLN(config.boardName);
-#endif
-
-    IOTappStory();
+    if (atoi(config.automaticUpdate) == 1) IOTappStory(false);
 
 #ifdef BOOTSTATISTICS
     sendSparkfun();   // send boot statistics to sparkfun
@@ -288,13 +279,13 @@ void setup() {
   }  // End WiFi necessary
 
   LEDswitch(None);
-    pinMode(GPIO0, INPUT_PULLUP);  // GPIO0 as input for Config mode selection
+  pinMode(MODEBUTTON, INPUT_PULLUP);  // MODEBUTTON as input for Config mode selection
 
   DEBUG_PRINTLN("setup done");
 }
 //--------------- LOOP ----------------------------------
 void loop() {
-  float h, t, f, hif,hic;
+  float h, t, f, hif, hic;
   //-------- Standard Block ---------------
   if (buttonChanged && buttonTime > 4000) espRestart('C', "Going into Configuration Mode");  // long button press > 4sec
   if (buttonChanged && buttonTime > 500 && buttonTime < 4000) IOTappStory(); // long button press > 1sec
@@ -324,25 +315,27 @@ void loop() {
   // Read temperature as Fahrenheit (isFahrenheit = true)
   f = dht.readTemperature(true);
   // Compute heat index in Fahrenheit (the default)
-   hif = dht.computeHeatIndex(f, h);
+  hif = dht.computeHeatIndex(f, h);
   // Compute heat index in Celsius (isFahreheit = false)
-   hic = dht.computeHeatIndex(t, h, false);
+  hic = dht.computeHeatIndex(t, h, false);
 
   displayTemp(t);
 
- /* Serial.print("Humidity: ");
-  Serial.print(h);
-  Serial.print(" %\t");
-  Serial.print("Temperature: ");
-  Serial.print(t);
-  Serial.print(" *C ");
-  Serial.print(f);
-  Serial.print(" *F\t");
-  Serial.print("Heat index: ");
-  Serial.print(hic);
-  Serial.print(" *C ");
-  Serial.print(hif);
-  Serial.println(" *F"); */
+  /*
+     Serial.print("Humidity: ");
+     Serial.print(h);
+     Serial.print(" %\t");
+     Serial.print("Temperature: ");
+     Serial.print(t);
+     Serial.print(" *C ");
+     Serial.print(f);
+     Serial.print(" *F\t");
+     Serial.print("Heat index: ");
+     Serial.print(hic);
+     Serial.print(" *C ");
+     Serial.print(hif);
+     Serial.println(" *F");
+  */
 }
 //------------------------- END LOOP --------------------------------------------
 
@@ -404,6 +397,7 @@ bool handleWiFi() {
 }
 
 void switchRelay(bool state) {
+
   if (state) {
     DEBUG_PRINT("Switch On ");
     if (Debug.ative(Debug.INFO)) REMOTEDEBUG_PRINTLN("Switch On ");
@@ -419,13 +413,6 @@ void switchRelay(bool state) {
     digitalWrite(RELAYPIN, OFF);
     relayState = OFF;
   }
-}
-
-
-
-void readFullConfiguration() {
-  readConfig();  // configuration in EEPROM
-  // insert NEW CONSTANTS according switchName1 example
 }
 
 

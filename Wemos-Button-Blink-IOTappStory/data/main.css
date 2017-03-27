@@ -1,0 +1,47 @@
+html{
+	width:100%;
+	height:100%;
+	-webkit-box-sizing: border-box;
+	-moz-box-sizing: border-box;
+	box-sizing: border-box;
+}
+*, *:before, *:after {
+	-webkit-box-sizing: inherit;
+	-moz-box-sizing: inherit;
+	box-sizing: inherit;
+}
+:focus{
+	outline: none;
+	outline-style:none;
+	box-shadow:none;
+	border-color:transparent;
+}
+body{
+	width:100%;
+	height:100%;
+	margin:0;
+	padding:0;
+	
+	background:#000;										/* For browsers that do not support gradients */
+    background: -webkit-linear-gradient(#000, #9c9c9c); 	/* For Safari 5.1 to 6.0 */
+    background: -o-linear-gradient(#000, #9c9c9c); 			/* For Opera 11.1 to 12.0 */
+    background: -moz-linear-gradient(#000, #9c9c9c); 		/* For Firefox 3.6 to 15 */
+    background: linear-gradient(#000, #9c9c9c); 			/* Standard syntax */
+	
+	font-family:Arial, Helvetica, sans-serif;
+	font-size:12px;
+	text-align:center;
+	color:#FFF;
+}
+.hdr{
+	width:100%;
+	padding:15px 0 15px 0;
+}
+.btn_cnt{
+	width:111px;
+	margin:0 auto 0 auto;
+	padding-top:35%;
+}
+.btn_cnt a{
+	-webkit-tap-highlight-color: rgba(255, 255, 255, 0);
+}

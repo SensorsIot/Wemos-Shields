@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+	<html>
+		<head>
+			<meta http-equiv="Content-type" content="text/html; charset=utf-8">
+			<meta name="viewport" content="width=device-width,initial-scale=1">
+			<title>Example WebApp & Toggle Button</title>
+			<link href="main.css" rel="stylesheet" type="text/css" />
+			<link rel="manifest" href="manifest.json">
+			<script type="text/javascript">
+				var button = document.getElementById("button");
+				var led = document.getElementById("led");
+				
+				function sendState(val){
+					var xh = new XMLHttpRequest();
+					var led = document.getElementById("led");
+					xh.onreadystatechange = function(){
+						if (xh.readyState == 4){
+							if(xh.status == 200) {
+								/* succes */
+								var result = JSON.parse(xh.responseText);
+								if(result.ledState == 1){
+									led.src = "led-on.png";
+								}else{
+									led.src = "led-off.png";
+								}
+							}
+						}
+					};
+					xh.open("GET", val, true);
+					xh.send(null);
+				};
+			
+				function getState(){
+					sendState("/getState");
+					setTimeout(function() {
+						getState();
+					}, 400);
+				};
+				
+				function onBodyLoad(){
+					var button = document.getElementById("button");
+					button.onmousedown = function(){
+						button.src = "btn-do.png";
+						navigator.vibrate(20);
+						sendState("/btn");
+					};
+					
+					button.onmouseup = function(){
+						setTimeout(function() {
+							button.src = "btn.png";
+						}, 400);
+					};
+					setTimeout(function() {
+						getState();
+					}, 400);
+				};
+			</script>
+		</head>
+		<body id="index" onload="onBodyLoad()">
+			<div class="hdr"><img src="logo-app.png"></div>
+			<div class="btn_cnt">
+				<img id="led" src="led-off.png">
+				<a href="#"><img id="button" src="btn.png"></a>
+			</div>
+		</body>
+	</html>
