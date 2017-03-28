@@ -24,15 +24,16 @@
 
 */
 
-#define SKETCH "WebApp & Toggle Button "
-#define VERSION "1.0.0"
+#define SKETCH "Wemos WS2812 "
+#define VERSION "V1.0.0"
 #define FIRMWARE SKETCH VERSION
 
 #define SERIALDEBUG         // Serial is used to present debugging messages 
 #define REMOTEDEBUGGING     // UDP is used to transfer debug messages
 
-// #define LEDS_INVERSE   // LEDS on = GND
+#define LEDS_INVERSE   // LEDS on = GND
 
+#include <credentials.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266httpUpdate.h>
 #include <DNSServer.h>
@@ -42,6 +43,7 @@
 #include <EEPROM.h>
 #include <ArduinoJson.h>
 #include <FS.h>
+#include <Adafruit_NeoPixel.h>
 
 #ifdef REMOTEDEBUGGING
 #include <WiFiUDP.h>
@@ -52,8 +54,7 @@ extern "C" {
 }
 
 //--------  Sketch Specific -------
-#include <WiFiClient.h>
-#include <ESP8266WebServer.h>
+
 
 
 // -------- PIN DEFINITIONS ------------------
@@ -61,15 +62,6 @@ extern "C" {
 #define MODEBUTTON 0
 #define LEDgreen 13
 //#define LEDred 12
-
-#define D0 16
-#define D1 5
-#define D2 4
-#define D4 2
-#define D5 14
-#define D6 12
-#define D7 13
-#define D8 15
 #else
 #define MODEBUTTON D3
 #define LEDgreen D7
@@ -78,6 +70,8 @@ extern "C" {
 
 // --- Sketch Specific -----
 
+#define NEO_PIN   D2
+#define NUMPIXELS      1
 
 
 //---------- DEFINES for SKETCH ----------
@@ -94,7 +88,7 @@ extern "C" {
 
 
 // --- Sketch Specific -----
-
+Adafruit_NeoPixel pixels = Adafruit_NeoPixel(NUMPIXELS, NEO_PIN, NEO_GRB + NEO_KHZ800);
 
 
 //--------- ENUMS AND STRUCTURES  -------------------
@@ -117,42 +111,28 @@ typedef struct {
 strConfig config = {
   "",
   "",
-  "WebApp & Toggle Button",
+  "yourFirstApp",
   "iotappstory.com",
   "/ota/esp8266-v1.php",
   "iotappstory.com",
   "/ota/esp8266-v1.php",
-  "1",
+  "0",
   "CFG"  // Magic Bytes
 };
 
 // --- Sketch Specific -----
-const char* host = "WebAppToggleButton";
-ESP8266WebServer server(80);
-String retString = "";
+
 
 
 //---------- VARIABLES ----------
-unsigned long debugEntry;
+
+unsigned long debugEntry, loopEntry;
 
 String sysMessage;
 
 // --- Sketch Specific -----
 // String xx; // add NEW CONSTANTS for WiFiManager according the variable "boardname"
-byte LEDpin = D6;
-byte relayPin = D1;
-byte buttonPin = D3;
-
-// Variables will change:
-int ledState = LOW;         // the current state of the output pin
-int buttonState;             // the current reading from the input pin
-int lastButtonState = LOW;   // the previous reading from the input pin
-
-// the following variables are long's because the time, measured in miliseconds,
-// will quickly become a bigger number than can be stored in an int.
-long lastDebounceTime = 0;  // the last time the output pin was toggled
-long debounceDelay = 50;    // the debounce time; increase if the output flickers
-
+byte red, blue, green;
 
 //---------- FUNCTIONS ----------
 // to help the compiler, sometimes, functions have  to be declared here
@@ -168,51 +148,7 @@ void sendDebugMessage(void);
 #include "IOTappStoryHelpers.h"    // Sketch specific helpers for all IOTappStory sketches
 
 
-//format bytes
-String formatBytes(size_t bytes) {
-  if (bytes < 1024) {
-    return String(bytes) + "B";
-  } else if (bytes < (1024 * 1024)) {
-    return String(bytes / 1024.0) + "KB";
-  } else if (bytes < (1024 * 1024 * 1024)) {
-    return String(bytes / 1024.0 / 1024.0) + "MB";
-  } else {
-    return String(bytes / 1024.0 / 1024.0 / 1024.0) + "GB";
-  }
-}
 
-String getContentType(String filename) {
-  if (server.hasArg("download")) return "application/octet-stream";
-  else if (filename.endsWith(".htm")) return "text/html";
-  else if (filename.endsWith(".html")) return "text/html";
-  else if (filename.endsWith(".css")) return "text/css";
-  else if (filename.endsWith(".js")) return "application/javascript";
-  else if (filename.endsWith(".png")) return "image/png";
-  else if (filename.endsWith(".gif")) return "image/gif";
-  else if (filename.endsWith(".jpg")) return "image/jpeg";
-  else if (filename.endsWith(".ico")) return "image/x-icon";
-  else if (filename.endsWith(".xml")) return "text/xml";
-  else if (filename.endsWith(".pdf")) return "application/x-pdf";
-  else if (filename.endsWith(".zip")) return "application/x-zip";
-  else if (filename.endsWith(".gz")) return "application/x-gzip";
-  return "text/plain";
-}
-
-bool handleFileRead(String path) {
-  Serial.println("handleFileRead: " + path);
-  if (path.endsWith("/")) path += "index.htm";
-  String contentType = getContentType(path);
-  String pathWithGz = path + ".gz";
-  if (SPIFFS.exists(pathWithGz) || SPIFFS.exists(path)) {
-    if (SPIFFS.exists(pathWithGz))
-      path += ".gz";
-    File file = SPIFFS.open(path, "r");
-    size_t sent = server.streamFile(file, contentType);
-    file.close();
-    return true;
-  }
-  return false;
-}
 
 // ================================== SETUP ================================================
 
@@ -236,17 +172,7 @@ void setup() {
 
   // --- Sketch Specific -----
 
-  Serial.print("DEF Button Pin ");        // <<----  test where pin 16 comes from
-  Serial.println(buttonPin);              // <<----  now it is pin 16 ???
-  Serial.println("");
-  Serial.print("LED Pin ");
-  Serial.println(LEDpin);
-  pinMode(buttonPin, INPUT);
-  pinMode(LEDpin, OUTPUT);
-  pinMode(relayPin, OUTPUT);
-
-
-
+  pixels.begin(); // This initializes the NeoPixel library.
 
   // ------------- INTERRUPTS ----------------------------
   attachInterrupt(MODEBUTTON, ISRbuttonStateChanged, CHANGE);
@@ -278,7 +204,7 @@ void setup() {
 
   sendSysLogMessage(2, 1, config.boardName, FIRMWARE, 10, counter++, "------------- Normal Mode -------------------");
 
-  if (atoi(config.automaticUpdate) == 1) IOTappStory();
+  if (atoi(config.automaticUpdate) == 1) IOTappStory(false);  // replace false with true if you want tu update the SPIFFS, too
 
 
 
@@ -290,79 +216,9 @@ void setup() {
   // ----------- END SPECIFIC SETUP CODE ----------------------------
 
   LEDswitch(None);
-  pinMode(MODEBUTTON, INPUT_PULLUP);  // MODEBUTTON as input for Config mode selection    ? why ? this is the second time
+  pinMode(MODEBUTTON, INPUT_PULLUP);  // MODEBUTTON as input for Config mode selection
 
   sendSysLogMessage(7, 1, config.boardName, FIRMWARE, 10, counter++, "Setup done");
-
-
-  // --- Sketch Specific -----
-
-  Serial.setDebugOutput(false);
-  SPIFFS.begin();
-  {
-    Dir dir = SPIFFS.openDir("/");
-    while (dir.next()) {
-      String fileName = dir.fileName();
-      size_t fileSize = dir.fileSize();
-      Serial.printf("FS File: %s, size: %s\n", fileName.c_str(), formatBytes(fileSize).c_str());
-    }
-    Serial.printf("\n");
-  }
-
-  Serial.println("");
-  Serial.print("Connected! IP address: ");
-  Serial.println(WiFi.localIP());
-
-  MDNS.begin(host);
-  Serial.print("Open http://");
-  Serial.print(host);
-
-
-  //called when the url is not defined here return 404
-  server.onNotFound([]() {
-    if (!handleFileRead(server.uri()))
-      server.send(404, "text/plain", "FileNotFound");
-  });
-
-  // When the button is pressed in the WebApp    <<<<<<<<<<<<--------------- <<<-------------------- <<<-----------
-  server.on("/btn", HTTP_GET, []() {
-    Serial.println("");
-    Serial.println("WebApp button pressed");
-
-    // toggle ledState
-    ledState = !ledState;
-    Serial.println("Changed led status to (" + String(ledState) + ") on pin (" + String(LEDpin) + ")");
-    Serial.println("");
-
-    // update LEDpin
-    digitalWrite(LEDpin, ledState);
-    digitalWrite(relayPin, ledState);
-
-    // create json return
-    String json = "{";
-    json += "\"ledState\":\"" + String(ledState) + "\"";
-    json += "}";
-
-    // return json to WebApp
-    server.send(200, "text/json", json);
-    json = String();
-  });
-
-  server.on("/getState", HTTP_GET, []() {
-    // create json return
-    String json = "{";
-    json += "\"ledState\":\"" + String(ledState) + "\"";
-    json += "}";
-
-    // return json to WebApp
-    server.send(200, "text/json", json);
-    json = String();
-  });
-
-
-  // start the HTTP server
-  server.begin();
-  Serial.println("HTTP server started");
 }
 
 
@@ -373,9 +229,15 @@ void setup() {
 void loop() {
   //-------- IOTappStory Block ---------------
   yield();
-  handleModeButton();   // this routine handles the reaction of the Flash button. If short press: update of skethc, long press: Configuration
+  int bTime = handleModeButton();
+  if (bTime > 100 && bTime < 1000) { // this routine handles the reaction of the Flash button. If short press: update of skethc, long press: Configuration
+    Serial.println(bTime);
+    red = random(200);
+    green = random(255);
+    blue = random(150);
+  }
 
-  // Normal blind (1 sec): Connecting to network
+  // Normal blink (1 sec): Connecting to network
   // fast blink: Configuration mode. Please connect to ESP network
   // Slow Blink: IOTappStore Update in progress
 
@@ -387,52 +249,15 @@ void loop() {
 
   //-------- Your Sketch ---------------
 
-  server.handleClient();
+  if (millis() - loopEntry > 500) { // Non-Blocking second counter
+    loopEntry = millis();
+    pixels.setPixelColor(0, pixels.Color(red, green, blue)); // Moderately bright green color.
+    pixels.show(); // This sends the updated pixel color to the hardware.
 
-  // read the state of the pushbutton value:
-  int reading = digitalRead(buttonPin);
-
-
-  // check to see if you just pressed the button
-  // (i.e. the input went from LOW to HIGH),  and you've waited
-  // long enough since the last press to ignore any noise:
-
-  // If the switch changed, due to noise or pressing:
-  if (reading != lastButtonState) {
-    // reset the debouncing timer
-    lastDebounceTime = millis();
   }
 
-  if ((millis() - lastDebounceTime) > debounceDelay) {
-    // whatever the reading is at, it's been there for longer
-    // than the debounce delay, so take it as the actual current state:
-
-    // if the button state has changed:
-    if (reading != buttonState) {
-      buttonState = reading;
-
-      // only toggle the LED if the new button state is HIGH
-      if (buttonState == HIGH) {
-        ledState = !ledState;
-        Serial.println("");
-        Serial.println("Hardware button pressed. Pin (" + String(buttonPin) + ")");
-        Serial.println("Changed led status to (" + String(ledState) + ") on pin (" + String(LEDpin) + ")");
-        Serial.println("");
-      }
-    }
-  }
-
-  // set the LED:
-  digitalWrite(LEDpin, ledState);
-  digitalWrite(relayPin, ledState);
-
-  // save the reading.  Next time through the loop,
-  // it'll be the lastButtonState:
-  lastButtonState = reading;
 }
 //------------------------- END LOOP --------------------------------------------
-
-
 
 void sendDebugMessage() {
   // ------- Syslog Message --------
@@ -450,6 +275,13 @@ void sendDebugMessage() {
   long h1 = ESP.getFreeHeap();
   sysMessage += " Heap ";
   sysMessage += h1;
+  sysMessage += " Red: ";
+  sysMessage += red;
+  sysMessage += " Green: ";
+  sysMessage += green;
+  sysMessage += " Blue: ";
+  sysMessage += blue;
+
   sendSysLogMessage(6, 1, config.boardName, FIRMWARE, 10, counter++, sysMessage);
 }
 
